@@ -1,0 +1,167 @@
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { HiMail, HiLockClosed, HiUser } from 'react-icons/hi';
+import { FcGoogle } from 'react-icons/fc';
+import { useAuth } from '@/hooks/useAuth';
+import toast from 'react-hot-toast';
+
+export default function Register() {
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { signUp, signInWithGoogle } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (password !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await signUp(email, password, username);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success('Account created! Please check your email for verification.');
+      navigate('/login');
+    }
+    setLoading(false);
+  };
+
+  const handleGoogle = async () => {
+    const { error } = await signInWithGoogle();
+    if (error) toast.error(error.message);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4 pt-20 pb-16">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md"
+      >
+        <div className="glass-card p-8 gradient-border">
+          <div className="text-center mb-8">
+            <h1 className="font-heading font-bold text-3xl mb-2">
+              Join <span className="gradient-text">ZeroTrace</span>
+            </h1>
+            <p className="text-text-muted text-sm">
+              Create your account and start your journey
+            </p>
+          </div>
+
+          {/* Google Signup */}
+          <button
+            onClick={handleGoogle}
+            className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-bg-card border border-border rounded-xl text-sm font-medium hover:bg-bg-card-hover hover:border-border-hover transition-all mb-6"
+          >
+            <FcGoogle size={20} />
+            Continue with Google
+          </button>
+
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-text-muted text-xs">or</span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                Username
+              </label>
+              <div className="relative">
+                <HiUser className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="h4cker"
+                  required
+                  className="w-full pl-10 pr-4 py-3 bg-bg-card border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                Email
+              </label>
+              <div className="relative">
+                <HiMail className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  className="w-full pl-10 pr-4 py-3 bg-bg-card border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                Password
+              </label>
+              <div className="relative">
+                <HiLockClosed className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="w-full pl-10 pr-4 py-3 bg-bg-card border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                Confirm Password
+              </label>
+              <div className="relative">
+                <HiLockClosed className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="w-full pl-10 pr-4 py-3 bg-bg-card border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full btn-gradient !py-3 text-sm"
+            >
+              {loading ? 'Creating Account...' : 'Create Account'}
+            </button>
+          </form>
+
+          <p className="text-center text-text-muted text-sm mt-6">
+            Already have an account?{' '}
+            <Link to="/login" className="text-primary hover:underline font-medium">
+              Log in
+            </Link>
+          </p>
+        </div>
+      </motion.div>
+    </div>
+  );
+}

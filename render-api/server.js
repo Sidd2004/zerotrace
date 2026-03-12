@@ -1,0 +1,187 @@
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import morgan from 'morgan';
+import { createClient } from '@supabase/supabase-js';
+import nodemailer from 'nodemailer';
+
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+// ─── Validate required env vars ───
+const requiredVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'];
+for (const v of requiredVars) {
+  if (!process.env[v]) {
+    console.error(`Missing required env variable: ${v}`);
+    process.exit(1);
+  }
+}
+
+// ─── Supabase Client (Service Role – bypasses RLS) ───
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+// ─── Nodemailer SMTP Transporter ───
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '465'),
+  secure: process.env.SMTP_SECURE !== 'false', // true for 465, false for 587
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
+});
+
+// Verify SMTP connection on startup
+transporter.verify()
+  .then(() => console.log('✅ SMTP connection verified'))
+  .catch((err) => console.error('⚠️ SMTP verification failed:', err.message));
+
+// ─── Middleware ───
+app.use(helmet());
+app.use(morgan('dev'));
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['https://zerotrace.in', 'https://www.zerotrace.in'];
+
+app.use(cors({ origin: allowedOrigins }));
+app.use(express.json());
+
+// Rate limiting for contact form
+const contactLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many contact requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// ─── Utility ───
+const sanitize = (str) => {
+  if (!str) return '';
+  return str.toString().trim().replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'zerotrace2004@gmail.com';
+const FROM_EMAIL = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+const FROM_NAME = process.env.SMTP_FROM_NAME || 'ZeroTrace Security';
+
+// ─── Routes ───
+app.get('/', (_req, res) => {
+  res.status(200).json({ status: 'ZeroTrace API is active.' });
+});
+
+/**
+ * POST /api/contact
+ * 1. Validates & sanitizes input
+ * 2. Inserts into Supabase contact_messages table
+ * 3. Sends admin notification email via SMTP
+ * 4. Sends user acknowledgement email via SMTP
+ */
+app.post('/api/contact', contactLimiter, async (req, res) => {
+  try {
+    const { name, email, phone, service, message } = req.body;
+
+    // 1. Validation
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return res.status(400).json({ error: 'Valid email address is required' });
+    }
+    if (!message || message.trim() === '') {
+      return res.status(400).json({ error: 'Message cannot be empty' });
+    }
+
+    const sanitizedData = {
+      name: sanitize(name),
+      email: email.trim().toLowerCase(),
+      phone: sanitize(phone) || null,
+      service: sanitize(service) || 'General Inquiry',
+      message: sanitize(message),
+      status: 'new',
+    };
+
+    // 2. Insert into Supabase
+    const { data, error: dbError } = await supabase
+      .from('contact_messages')
+      .insert([sanitizedData])
+      .select('id')
+      .single();
+
+    if (dbError) {
+      console.error('Supabase Insert Error:', dbError);
+      throw new Error('Database insertion failed');
+    }
+
+    console.log(`✅ Contact message saved [ID: ${data.id}]`);
+
+    // 3. Send Admin Notification Email
+    const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    try {
+      await transporter.sendMail({
+        from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
+        to: ADMIN_EMAIL,
+        subject: `New Contact Request — ${sanitizedData.name}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#f0f0f0;padding:24px;border-radius:12px;">
+            <h2 style="color:#ef2f88;margin-top:0;">New Contact Submission</h2>
+            <table style="width:100%;border-collapse:collapse;">
+              <tr><td style="padding:8px 0;color:#999;">Name</td><td style="padding:8px 0;">${sanitizedData.name}</td></tr>
+              <tr><td style="padding:8px 0;color:#999;">Email</td><td style="padding:8px 0;">${sanitizedData.email}</td></tr>
+              <tr><td style="padding:8px 0;color:#999;">Phone</td><td style="padding:8px 0;">${sanitizedData.phone || 'Not provided'}</td></tr>
+              <tr><td style="padding:8px 0;color:#999;">Service</td><td style="padding:8px 0;">${sanitizedData.service}</td></tr>
+              <tr><td style="padding:8px 0;color:#999;">Timestamp</td><td style="padding:8px 0;">${timestamp}</td></tr>
+            </table>
+            <div style="margin-top:16px;padding:16px;background:#111;border-radius:8px;">
+              <p style="color:#999;margin:0 0 8px;">Message:</p>
+              <p style="margin:0;line-height:1.6;">${sanitizedData.message}</p>
+            </div>
+          </div>
+        `,
+      });
+      console.log('✅ Admin notification email sent');
+    } catch (mailErr) {
+      console.error('⚠️ Failed to send admin email:', mailErr.message);
+    }
+
+    // 4. Send User Acknowledgement Email
+    try {
+      await transporter.sendMail({
+        from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
+        to: sanitizedData.email,
+        subject: 'We received your message — ZeroTrace',
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#f0f0f0;padding:24px;border-radius:12px;">
+            <h2 style="color:#ef2f88;margin-top:0;">Thank you, ${sanitizedData.name}!</h2>
+            <p style="color:#ccc;line-height:1.6;">We have received your message and our team will get back to you within 24 hours.</p>
+            <p style="color:#ccc;line-height:1.6;">If your inquiry is urgent, please reach out directly at <a href="mailto:${ADMIN_EMAIL}" style="color:#ef2f88;">${ADMIN_EMAIL}</a>.</p>
+            <hr style="border:none;border-top:1px solid #222;margin:24px 0;">
+            <p style="color:#666;font-size:12px;margin:0;">&copy; ${new Date().getFullYear()} ZeroTrace Security. All rights reserved.</p>
+          </div>
+        `,
+      });
+      console.log('✅ User acknowledgement email sent');
+    } catch (mailErr) {
+      console.error('⚠️ Failed to send user acknowledgement:', mailErr.message);
+    }
+
+    return res.status(200).json({ success: true, message: 'Message sent successfully.' });
+  } catch (error) {
+    console.error('API /api/contact Error:', error);
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ─── Start Server ───
+app.listen(PORT, () => {
+  console.log(`✅ ZeroTrace API running on port ${PORT}`);
+});

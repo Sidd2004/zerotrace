@@ -1,0 +1,21 @@
+{
+  "name": "zerotrace-render-api",
+  "version": "1.0.0",
+  "description": "Backend API for ZeroTrace — handles contact form, DB insertion, and SMTP email dispatch.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.48.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0",
+    "nodemailer": "^6.9.16"
+  }
+}
