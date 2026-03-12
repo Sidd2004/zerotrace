@@ -64,7 +64,7 @@ const focusAreas = [
 ];
 
 const hallOfFame = [
-  { name: 'CipherPhantom', points: 4850, rank: 1 },
+  { name: 'TeamSUDO', points: 4850, rank: 1 },
   { name: 'NullByte', points: 4620, rank: 2 },
   { name: 'XSSHunter', points: 4310, rank: 3 },
   { name: 'ShellStorm', points: 3980, rank: 4 },
@@ -107,34 +107,34 @@ export default function Community() {
     events.length > 0
       ? events
       : [
-          {
-            id: '1',
-            name: 'ZeroTrace CTF 2025',
-            description: 'Annual flagship CTF competition with challenges across all categories.',
-            date: '2025-06-15T00:00:00Z',
-            duration: '48 hours',
-            team_size: 4,
-            prize_pool: '$5,000',
-          },
-          {
-            id: '2',
-            name: 'Web Exploitation Workshop',
-            description: 'Hands-on workshop covering modern web attack vectors and defense techniques.',
-            date: '2025-04-20T00:00:00Z',
-            duration: '4 hours',
-            team_size: 1,
-            prize_pool: 'Free',
-          },
-          {
-            id: '3',
-            name: 'Binary Pwn Night',
-            description: 'Live binary exploitation challenges with real-time leaderboard.',
-            date: '2025-05-10T00:00:00Z',
-            duration: '6 hours',
-            team_size: 2,
-            prize_pool: '$1,000',
-          },
-        ];
+        {
+          id: '1',
+          name: 'ZeroTrace CTF 2025',
+          description: 'Annual flagship CTF competition with challenges across all categories.',
+          date: '2025-06-15T00:00:00Z',
+          duration: '48 hours',
+          team_size: 4,
+          prize_pool: '$5,000',
+        },
+        {
+          id: '2',
+          name: 'Web Exploitation Workshop',
+          description: 'Hands-on workshop covering modern web attack vectors and defense techniques.',
+          date: '2025-04-20T00:00:00Z',
+          duration: '4 hours',
+          team_size: 1,
+          prize_pool: 'Free',
+        },
+        {
+          id: '3',
+          name: 'Binary Pwn Night',
+          description: 'Live binary exploitation challenges with real-time leaderboard.',
+          date: '2025-05-10T00:00:00Z',
+          duration: '6 hours',
+          team_size: 2,
+          prize_pool: '$1,000',
+        },
+      ];
 
   return (
     <>
@@ -330,15 +330,14 @@ export default function Community() {
               >
                 <div className="flex items-center gap-4">
                   <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center font-heading font-bold text-sm ${
-                      player.rank === 1
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center font-heading font-bold text-sm ${player.rank === 1
                         ? 'bg-yellow-500/20 text-yellow-400'
                         : player.rank === 2
-                        ? 'bg-gray-400/20 text-gray-300'
-                        : player.rank === 3
-                        ? 'bg-orange-500/20 text-orange-400'
-                        : 'bg-bg-card text-text-muted'
-                    }`}
+                          ? 'bg-gray-400/20 text-gray-300'
+                          : player.rank === 3
+                            ? 'bg-orange-500/20 text-orange-400'
+                            : 'bg-bg-card text-text-muted'
+                      }`}
                   >
                     #{player.rank}
                   </div>
