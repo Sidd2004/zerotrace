@@ -37,3 +37,5 @@ jobs:
             **/.git*
             **/.git*/**
             **/uploads/**
+            upload-image.php
+            .htaccess

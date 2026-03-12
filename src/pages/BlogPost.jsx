@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
+import DOMPurify from 'dompurify';
 import { HiArrowLeft, HiClock, HiUser } from 'react-icons/hi';
 import { supabase } from '@/lib/supabase';
 import { formatDate } from '@/utils/helpers';
@@ -148,14 +149,22 @@ export default function BlogPost() {
               />
             )}
 
-            {/* Markdown content */}
+            {/* Blog content — supports both HTML (TipTap) and Markdown (legacy) */}
             <div className="blog-content">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeHighlight, rehypeRaw]}
-              >
-                {post.content || ''}
-              </ReactMarkdown>
+              {post.content && post.content.trim().startsWith('<') ? (
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(post.content),
+                  }}
+                />
+              ) : (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight, rehypeRaw]}
+                >
+                  {post.content || ''}
+                </ReactMarkdown>
+              )}
             </div>
 
             {/* Like button */}

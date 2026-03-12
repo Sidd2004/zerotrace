@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import MDEditor from '@uiw/react-md-editor';
+import TipTapEditor from '@/components/TipTapEditor';
 import { HiSave, HiEye, HiTrash } from 'react-icons/hi';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -237,18 +237,12 @@ export default function BlogEditor() {
             ))}
           </div>
 
-          {/* Markdown Editor */}
-          <div data-color-mode="dark" className="mb-8">
-            <MDEditor
-              value={content}
-              onChange={(val) => setContent(val || '')}
-              height={500}
-              preview="live"
-              textareaProps={{
-                placeholder: 'Write your post in Markdown...',
-              }}
-            />
-          </div>
+          {/* TipTap Editor */}
+          <TipTapEditor
+            value={content}
+            onChange={setContent}
+            placeholder="Start writing your post..."
+          />
         </motion.div>
       </div>
     </div>
