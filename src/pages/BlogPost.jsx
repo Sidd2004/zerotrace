@@ -8,10 +8,39 @@ import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
 import { HiArrowLeft, HiClock, HiUser } from 'react-icons/hi';
 import { supabase } from '@/lib/supabase';
-import { formatDate } from '@/utils/helpers';
+import { formatDate, stripMarkdown, truncateText } from '@/utils/helpers';
 import LikeButton from '@/components/LikeButton';
 import Comments from '@/components/Comments';
 import GridBackground from '@/components/GridBackground';
+
+// ─── SEO helpers ─────────
+function setMeta(name, content) {
+  let el = document.querySelector(`meta[name="${name}"]`);
+  if (!el) {
+    el = document.createElement('meta');
+    el.setAttribute('name', name);
+    document.head.appendChild(el);
+  }
+  el.setAttribute('content', content);
+}
+
+function setOgMeta(property, content) {
+  let el = document.querySelector(`meta[property="${property}"]`);
+  if (!el) {
+    el = document.createElement('meta');
+    el.setAttribute('property', property);
+    document.head.appendChild(el);
+  }
+  el.setAttribute('content', content);
+}
+
+function removeMeta(name) {
+  document.querySelector(`meta[name="${name}"]`)?.remove();
+}
+
+function removeOgMeta(property) {
+  document.querySelector(`meta[property="${property}"]`)?.remove();
+}
 
 export default function BlogPost() {
   const { slug } = useParams();
@@ -21,6 +50,85 @@ export default function BlogPost() {
   useEffect(() => {
     fetchPost();
   }, [slug]);
+
+  // ─── Dynamic SEO meta tags ─────────
+  useEffect(() => {
+    if (!post) return;
+
+    const description = post.excerpt || truncateText(stripMarkdown(post.content), 160) || '';
+    const defaultKeywords = [
+      'cybersecurity', 'ethical-hacking', 'penetration-testing',
+      'vulnerability-research', 'ctf-writeups', 'exploit-development',
+      'network-security', 'threat-intelligence', 'malware-analysis',
+      'digital-forensics', 'bug-bounty'
+    ];
+    const postKeywords = post.tags?.length ? post.tags : [];
+    const allKeywords = [...new Set([...postKeywords, ...defaultKeywords])].join(', ');
+    const authorName = post.author?.username || 'ZeroTrace';
+    const postUrl = `https://zerotrace.in/blog/${post.slug}`;
+
+    // Page title
+    const originalTitle = document.title;
+    document.title = `${post.title} — ZeroTrace`;
+
+    // Standard meta tags
+    setMeta('description', description);
+    setMeta('keywords', allKeywords);
+    setMeta('author', authorName);
+    setMeta('robots', 'index, follow');
+
+    // Canonical URL
+    let canonicalLink = document.querySelector('link[rel="canonical"]');
+    if (!canonicalLink) {
+      canonicalLink = document.createElement('link');
+      canonicalLink.setAttribute('rel', 'canonical');
+      document.head.appendChild(canonicalLink);
+    }
+    canonicalLink.setAttribute('href', postUrl);
+
+    // Open Graph tags
+    setOgMeta('og:title', post.title);
+    setOgMeta('og:description', description);
+    setOgMeta('og:type', 'article');
+    setOgMeta('og:url', postUrl);
+    if (post.cover_image) setOgMeta('og:image', post.cover_image);
+
+    // Article-specific OG tags
+    setOgMeta('article:published_time', post.created_at);
+    setOgMeta('article:author', authorName);
+    if (post.tags?.length) {
+      post.tags.forEach((tag) => setOgMeta('article:tag', tag));
+    }
+
+    // Twitter card
+    setMeta('twitter:card', 'summary_large_image');
+    setMeta('twitter:title', post.title);
+    setMeta('twitter:description', description);
+    if (post.cover_image) setMeta('twitter:image', post.cover_image);
+
+    // Cleanup on unmount
+    return () => {
+      document.title = originalTitle;
+      removeMeta('keywords');
+      removeMeta('author');
+      removeMeta('robots');
+      removeMeta('twitter:card');
+      removeMeta('twitter:title');
+      removeMeta('twitter:description');
+      removeMeta('twitter:image');
+      removeOgMeta('og:title');
+      removeOgMeta('og:description');
+      removeOgMeta('og:type');
+      removeOgMeta('og:url');
+      removeOgMeta('og:image');
+      removeOgMeta('article:published_time');
+      removeOgMeta('article:author');
+      removeOgMeta('article:tag');
+      document.querySelector('link[rel="canonical"]')?.remove();
+      // Restore default description
+      setMeta('description', 'ZeroTrace — A cybersecurity community platform for security professionals, CTF players, and ethical hackers.');
+    };
+  }, [post]);
 
   const fetchPost = async () => {
     if (!slug) {

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { HiMail, HiLockClosed } from 'react-icons/hi';
 import { FcGoogle } from 'react-icons/fc';
+import { FaGithub, FaDiscord } from 'react-icons/fa';
 import { useAuth } from '@/hooks/useAuth';
 import toast from 'react-hot-toast';
 
@@ -10,7 +11,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn, signInWithOAuth } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -26,8 +27,8 @@ export default function Login() {
     setLoading(false);
   };
 
-  const handleGoogle = async () => {
-    const { error } = await signInWithGoogle();
+  const handleOAuth = async (provider) => {
+    const { error } = await signInWithOAuth(provider);
     if (error) toast.error(error.message);
   };
 
@@ -48,14 +49,30 @@ export default function Login() {
             </p>
           </div>
 
-          {/* Google Login */}
-          <button
-            onClick={handleGoogle}
-            className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-bg-card border border-border rounded-xl text-sm font-medium hover:bg-bg-card-hover hover:border-border-hover transition-all mb-6"
-          >
-            <FcGoogle size={20} />
-            Continue with Google
-          </button>
+          {/* OAuth Buttons */}
+          <div className="space-y-3 mb-6">
+            <button
+              onClick={() => handleOAuth('google')}
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-bg-card border border-border rounded-xl text-sm font-medium hover:bg-bg-card-hover hover:border-border-hover transition-all"
+            >
+              <FcGoogle size={20} />
+              Continue with Google
+            </button>
+            <button
+              onClick={() => handleOAuth('github')}
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-bg-card border border-border rounded-xl text-sm font-medium hover:bg-bg-card-hover hover:border-border-hover transition-all"
+            >
+              <FaGithub size={20} />
+              Continue with GitHub
+            </button>
+            <button
+              onClick={() => handleOAuth('discord')}
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-bg-card border border-border rounded-xl text-sm font-medium hover:bg-bg-card-hover hover:border-border-hover transition-all"
+            >
+              <FaDiscord size={20} className="text-[#5865F2]" />
+              Continue with Discord
+            </button>
+          </div>
 
           <div className="flex items-center gap-3 mb-6">
             <div className="flex-1 h-px bg-border" />

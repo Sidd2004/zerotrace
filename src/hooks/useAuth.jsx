@@ -130,13 +130,19 @@ export function AuthProvider({ children }) {
   }
 
   const signInWithGoogle = async () => {
+    return signInWithOAuth('google')
+  }
+
+  const signInWithOAuth = async (provider) => {
     const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
+      provider,
       options: {
-        redirectTo: window.location.origin + '/dashboard'
+        redirectTo: window.location.origin + '/dashboard',
+        scopes: provider === 'discord' ? 'identify email' : undefined
       }
     })
 
+    if (error) console.error('OAuth error:', error.message)
     return { data, error }
   }
 
@@ -191,6 +197,7 @@ export function AuthProvider({ children }) {
     signUp,
     signIn,
     signInWithGoogle,
+    signInWithOAuth,
     signOut,
     resetPassword,
     updatePassword,

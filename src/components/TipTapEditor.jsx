@@ -9,6 +9,7 @@ import Dropcursor from '@tiptap/extension-dropcursor';
 import { common, createLowlight } from 'lowlight';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import JSZip from 'jszip';
 import toast from 'react-hot-toast';
 import {
   HiCode,
@@ -19,6 +20,8 @@ import {
   HiPencil,
   HiUpload,
   HiDocumentText,
+  HiArchive,
+  HiTemplate,
 } from 'react-icons/hi';
 
 const lowlight = createLowlight(common);
@@ -26,6 +29,180 @@ const lowlight = createLowlight(common);
 // Max file size: 5 MB
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+// ZIP security limits
+const MAX_ZIP_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_EXTRACTED_SIZE = 50 * 1024 * 1024; // 50 MB
+const MAX_ZIP_FILE_COUNT = 100;
+const ALLOWED_CONTENT_EXTENSIONS = ['.md', '.html', '.markdown'];
+const ALLOWED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+const ALLOWED_ZIP_EXTENSIONS = [...ALLOWED_CONTENT_EXTENSIONS, ...ALLOWED_IMAGE_EXTENSIONS];
+
+/**
+ * Get the file extension (lowercased, with dot).
+ */
+function getExt(filename) {
+  const dot = filename.lastIndexOf('.');
+  return dot === -1 ? '' : filename.slice(dot).toLowerCase();
+}
+
+/**
+ * Get the basename of a path (last segment).
+ */
+function basename(filepath) {
+  return filepath.split('/').pop().split('\\').pop();
+}
+
+/**
+ * Upload a Blob/File to the server and return the hosted URL.
+ * Skips the MIME-type whitelist check since ZIP-extracted blobs
+ * may not have a reliable `type`; uses extension-based validation instead.
+ */
+async function uploadImageBlob(blob, filename) {
+  const ext = getExt(filename);
+  if (!ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
+    throw new Error(`Unsupported image type: ${ext}`);
+  }
+
+  const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
+  const file = new File([blob], filename, { type: mimeMap[ext] || 'application/octet-stream' });
+
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error(`Image ${filename} is too large (max 5 MB).`);
+  }
+
+  const formData = new FormData();
+  formData.append('image', file);
+
+  const res = await fetch('/upload-image.php', { method: 'POST', body: formData });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Upload failed (${res.status})`);
+  }
+  const data = await res.json();
+  if (!data.url) throw new Error('Upload did not return a URL');
+  return data.url;
+}
+
+/**
+ * Process HTML string: find all <img src="..."> with local paths,
+ * match them against a Map<basename, Blob>, upload, and rewrite src.
+ * Returns the rewritten HTML string.
+ */
+async function processHtmlImages(html, imageMap) {
+  // Parse the HTML in a temporary DOM
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const imgs = doc.querySelectorAll('img[src]');
+
+  for (const img of imgs) {
+    const src = img.getAttribute('src') || '';
+    // Skip absolute URLs (already hosted)
+    if (/^https?:\/\//i.test(src) || src.startsWith('data:')) continue;
+
+    // Extract the filename from the local path
+    const name = basename(src);
+    const blob = imageMap.get(name.toLowerCase());
+    if (blob) {
+      try {
+        const url = await uploadImageBlob(blob, name);
+        img.setAttribute('src', url);
+      } catch (err) {
+        console.warn(`Failed to upload image ${name}:`, err);
+      }
+    }
+  }
+
+  return doc.body.innerHTML;
+}
+
+/**
+ * Import raw HTML content: sanitize, process images, return clean HTML.
+ */
+async function importHtmlContent(rawHtml, imageMap = new Map()) {
+  // 1. Process images first (before sanitization strips src paths)
+  let html = await processHtmlImages(rawHtml, imageMap);
+  // 2. Sanitize
+  html = DOMPurify.sanitize(html, {
+    ADD_TAGS: ['img'],
+    ADD_ATTR: ['src', 'alt', 'href', 'target', 'rel', 'class'],
+  });
+  return html;
+}
+
+/**
+ * Validate and extract a ZIP file. Returns { contentFile: { name, text }, images: Map<basename, Blob> }
+ */
+async function extractZip(file) {
+  // Size check
+  if (file.size > MAX_ZIP_SIZE) {
+    throw new Error('ZIP file is too large. Maximum size is 10 MB.');
+  }
+
+  const zip = await JSZip.loadAsync(file);
+  const entries = Object.values(zip.files).filter((f) => !f.dir);
+
+  // File count check
+  if (entries.length > MAX_ZIP_FILE_COUNT) {
+    throw new Error(`ZIP contains too many files (${entries.length}). Maximum is ${MAX_ZIP_FILE_COUNT}.`);
+  }
+
+  let totalSize = 0;
+  const contentCandidates = []; // { name, text, ext, size }
+  const images = new Map(); // basename (lowercase) -> Blob
+
+  for (const entry of entries) {
+    const name = entry.name;
+
+    // Path traversal protection
+    if (name.includes('..') || name.startsWith('/')) {
+      throw new Error(`Unsafe path detected: ${name}`);
+    }
+
+    // Skip hidden files and __MACOSX
+    if (basename(name).startsWith('.') || name.startsWith('__MACOSX')) continue;
+
+    const ext = getExt(name);
+
+    // Only allow whitelisted extensions
+    if (!ALLOWED_ZIP_EXTENSIONS.includes(ext)) {
+      console.warn(`Skipping disallowed file in ZIP: ${name}`);
+      continue;
+    }
+
+    // Extracted size tracking
+    const data = await entry.async('arraybuffer');
+    totalSize += data.byteLength;
+    if (totalSize > MAX_EXTRACTED_SIZE) {
+      throw new Error('Extracted content exceeds 50 MB limit.');
+    }
+
+    if (ALLOWED_CONTENT_EXTENSIONS.includes(ext)) {
+      const text = new TextDecoder().decode(data);
+      contentCandidates.push({ name, text, ext, size: data.byteLength });
+    } else if (ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
+      const blob = new Blob([data]);
+      images.set(basename(name).toLowerCase(), blob);
+    }
+  }
+
+  // Select best content file: prefer .md over .html, largest file wins ties
+  let contentFile = null;
+  if (contentCandidates.length > 0) {
+    const mdFiles = contentCandidates.filter((f) => f.ext === '.md' || f.ext === '.markdown');
+    const htmlFiles = contentCandidates.filter((f) => f.ext === '.html');
+
+    const pickLargest = (arr) => arr.sort((a, b) => b.size - a.size)[0];
+
+    contentFile = mdFiles.length > 0 ? pickLargest(mdFiles) : pickLargest(htmlFiles);
+  }
+
+  if (!contentFile) {
+    throw new Error('No .md or .html content file found in the ZIP.');
+  }
+
+  return { contentFile, images };
+}
 
 /**
  * Compress an image client-side before uploading.
@@ -181,8 +358,11 @@ function ToolbarDivider() {
 export default function TipTapEditor({ value, onChange, placeholder = 'Start writing...' }) {
   const [previewMode, setPreviewMode] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
+  const [importProgress, setImportProgress] = useState(null);
   const imageInputRef = useRef(null);
   const mdInputRef = useRef(null);
+  const htmlInputRef = useRef(null);
+  const zipInputRef = useRef(null);
 
   const handleImageUpload = useCallback(
     async (file) => {
@@ -367,6 +547,118 @@ export default function TipTapEditor({ value, onChange, placeholder = 'Start wri
     e.target.value = '';
   };
 
+  // ─── HTML import ─────────
+  const handleHtmlImportClick = () => {
+    htmlInputRef.current?.click();
+  };
+
+  const handleHtmlFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !editor) return;
+
+    if (!file.name.endsWith('.html') && !file.name.endsWith('.htm')) {
+      toast.error('Please select an HTML (.html) file');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      setImportProgress('Importing HTML…');
+      const rawHtml = await file.text();
+      const cleanHtml = await importHtmlContent(rawHtml);
+      editor.commands.setContent(cleanHtml, true);
+      toast.success('HTML imported successfully!');
+    } catch (err) {
+      toast.error(`HTML import failed: ${err.message}`);
+      console.error(err);
+    } finally {
+      setImportProgress(null);
+    }
+
+    e.target.value = '';
+  };
+
+  // ─── ZIP import ─────────
+  const handleZipImportClick = () => {
+    zipInputRef.current?.click();
+  };
+
+  const handleZipFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !editor) return;
+
+    if (!file.name.endsWith('.zip')) {
+      toast.error('Please select a ZIP (.zip) file');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      setImportProgress('Extracting ZIP…');
+      const { contentFile, images } = await extractZip(file);
+
+      // Upload images
+      let uploaded = 0;
+      const totalImages = images.size;
+      const uploadedMap = new Map(); // basename (lowercase) -> hosted URL
+
+      for (const [name, blob] of images) {
+        try {
+          setImportProgress(`Uploading image ${++uploaded}/${totalImages}…`);
+          const url = await uploadImageBlob(blob, name);
+          uploadedMap.set(name.toLowerCase(), url);
+        } catch (err) {
+          console.warn(`Failed to upload ${name}:`, err);
+        }
+      }
+
+      // Parse content
+      setImportProgress('Processing content…');
+      let html;
+
+      if (contentFile.ext === '.html') {
+        html = contentFile.text;
+      } else {
+        // Markdown
+        html = await marked.parse(contentFile.text);
+      }
+
+      // Rewrite image paths: replace local src with uploaded URLs
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const imgs = doc.querySelectorAll('img[src]');
+
+      for (const img of imgs) {
+        const src = img.getAttribute('src') || '';
+        if (/^https?:\/\//i.test(src) || src.startsWith('data:')) continue;
+
+        const name = basename(src).toLowerCase();
+        const hostedUrl = uploadedMap.get(name);
+        if (hostedUrl) {
+          img.setAttribute('src', hostedUrl);
+        }
+      }
+
+      html = doc.body.innerHTML;
+
+      // Sanitize
+      const cleanHtml = DOMPurify.sanitize(html, {
+        ADD_TAGS: ['img'],
+        ADD_ATTR: ['src', 'alt', 'href', 'target', 'rel', 'class'],
+      });
+
+      editor.commands.setContent(cleanHtml, true);
+      toast.success(`Imported! ${uploaded} image(s) uploaded.`);
+    } catch (err) {
+      toast.error(`ZIP import failed: ${err.message}`);
+      console.error(err);
+    } finally {
+      setImportProgress(null);
+    }
+
+    e.target.value = '';
+  };
+
   if (!editor) return null;
 
   return (
@@ -460,6 +752,12 @@ export default function TipTapEditor({ value, onChange, placeholder = 'Start wri
           <ToolbarButton onClick={handleMarkdownImportClick} title="Import Markdown File">
             <HiDocumentText size={16} />
           </ToolbarButton>
+          <ToolbarButton onClick={handleHtmlImportClick} title="Import HTML File">
+            <HiTemplate size={16} />
+          </ToolbarButton>
+          <ToolbarButton onClick={handleZipImportClick} title="Import ZIP Archive">
+            <HiArchive size={16} />
+          </ToolbarButton>
         </div>
 
         {/* Preview toggle */}
@@ -494,6 +792,17 @@ export default function TipTapEditor({ value, onChange, placeholder = 'Start wri
         </div>
       )}
 
+      {/* Import progress indicator */}
+      {importProgress && (
+        <div className="tiptap-upload-progress">
+          <div className="tiptap-upload-progress-bar" style={{ width: '100%' }} />
+          <span className="tiptap-upload-progress-text">
+            <HiArchive size={12} />
+            {importProgress}
+          </span>
+        </div>
+      )}
+
       {/* Editor / Preview */}
       {previewMode ? (
         <div className="tiptap-preview">
@@ -521,6 +830,20 @@ export default function TipTapEditor({ value, onChange, placeholder = 'Start wri
         type="file"
         accept=".md,.markdown"
         onChange={handleMarkdownFileSelect}
+        style={{ display: 'none' }}
+      />
+      <input
+        ref={htmlInputRef}
+        type="file"
+        accept=".html,.htm"
+        onChange={handleHtmlFileSelect}
+        style={{ display: 'none' }}
+      />
+      <input
+        ref={zipInputRef}
+        type="file"
+        accept=".zip"
+        onChange={handleZipFileSelect}
         style={{ display: 'none' }}
       />
     </div>

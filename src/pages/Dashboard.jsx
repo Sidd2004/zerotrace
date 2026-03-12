@@ -9,6 +9,7 @@ import {
   HiLogout,
   HiPlus,
   HiClock,
+  HiPhotograph,
 } from 'react-icons/hi';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -94,6 +95,44 @@ export default function Dashboard() {
     if (!error) {
       toast.success('Post deleted');
       fetchPosts();
+    }
+  };
+
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      toast.error('Invalid image type. Use JPEG, PNG, GIF, or WebP.');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Image too large. Max size is 2 MB.');
+      return;
+    }
+
+    try {
+      toast.loading('Uploading avatar...', { id: 'avatar-upload' });
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      setAvatarUrl(data.publicUrl);
+      toast.success('Avatar uploaded!', { id: 'avatar-upload' });
+    } catch (error) {
+      toast.error(`Upload failed: ${error.message}`, { id: 'avatar-upload' });
     }
   };
 
@@ -302,13 +341,32 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <label className="block text-sm text-text-secondary mb-1.5">
-                      Avatar URL
+                      Profile Picture
                     </label>
+                    <div className="flex items-center gap-4 mb-3">
+                      {avatarUrl && (
+                        <img
+                          src={avatarUrl}
+                          alt="Avatar preview"
+                          className="w-16 h-16 rounded-xl object-cover border border-border"
+                        />
+                      )}
+                      <label className="flex items-center gap-2 bg-bg-card border border-border rounded-xl px-4 py-2.5 text-sm text-text-primary cursor-pointer hover:border-primary/50 hover:bg-white/5 transition-all">
+                        <HiPhotograph size={16} className="text-text-muted" />
+                        <span className="font-medium">Upload Image</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/gif,image/webp"
+                          onChange={handleAvatarUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
                     <input
                       type="url"
                       value={avatarUrl}
                       onChange={(e) => setAvatarUrl(e.target.value)}
-                      placeholder="https://..."
+                      placeholder="Or paste image URL..."
                       className="w-full bg-bg-primary border border-border rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
                     />
                   </div>
