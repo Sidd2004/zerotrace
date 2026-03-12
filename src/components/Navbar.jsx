@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HiMenuAlt3, HiX } from 'react-icons/hi';
 import { useAuth } from '@/hooks/useAuth';
-
+import logo from '@/assets/logo.png';
 const navLinks = [
   { name: 'Home', path: '/' },
   { name: 'Community', path: '/community' },
@@ -40,9 +40,7 @@ export default function Navbar() {
         <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 group">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center font-heading font-bold text-sm">
-              ZT
-            </div>
+            <img src={logo} alt="ZeroTrace Logo" className="h-10 w-auto object-contain" />
             <span className="font-heading font-bold text-lg tracking-tight">
               Zero<span className="gradient-text">Trace</span>
             </span>

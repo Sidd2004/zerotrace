@@ -43,7 +43,7 @@ export default function Contact() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     // 1. Frontend Validation
     const trimmedName = form.name.trim();
     const trimmedEmail = form.email.trim();
@@ -65,25 +65,23 @@ export default function Contact() {
 
     setLoading(true);
     try {
-      // 2. Transmit to Render API (Backend takes care of Supabase DB insert)
-      // Supabase Native SMTP takes over automatically inside the Database via webhook
-      const apiUrl = import.meta.env.VITE_API_URL;
-      if (!apiUrl) {
-        throw new Error('API endpoint is not configured.');
-      }
-      const response = await fetch(`${apiUrl}/api/contact`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: trimmedName,
-          email: trimmedEmail,
-          phone: form.phone.trim(),
-          service: form.service,
-          message: trimmedMessage,
-        }),
-      });
+      // Call deployed Supabase Edge Function
+      const response = await fetch(
+        'https://hklbzynfekyymrdqlhiv.supabase.co/functions/v1/mail-contact-send',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: trimmedName,
+            email: trimmedEmail,
+            phone: form.phone.trim(),
+            service: form.service,
+            message: trimmedMessage,
+          }),
+        }
+      );
 
       const result = await response.json();
 
@@ -94,18 +92,18 @@ export default function Contact() {
       // 3. Frontend Success Feedback
       toast.success(
         <div>
-          ✅ Message sent successfully.<br/>
+          ✅ Message sent successfully.<br />
           Our team will get back to you soon.
         </div>,
         { duration: 5000 }
       );
-      
+
       setForm({ name: '', email: '', phone: '', service: '', message: '' });
     } catch (error) {
       console.error('Contact Form Error:', error);
       toast.error(
         <div>
-          ❌ Something went wrong while sending your message.<br/>
+          ❌ Something went wrong while sending your message.<br />
           Please try again later.
         </div>,
         { duration: 5000 }
@@ -157,7 +155,7 @@ export default function Contact() {
                     {
                       icon: HiMail,
                       label: 'Email',
-                      value: 'contact@zerotrace.io',
+                      value: 'contact@zerotrace.in',
                     },
                     {
                       icon: HiLocationMarker,

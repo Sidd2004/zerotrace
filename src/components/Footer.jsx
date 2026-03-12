@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { FaGithub, FaTwitter, FaDiscord, FaLinkedin } from 'react-icons/fa';
 import NewsletterForm from './NewsletterForm';
-
+import logo from '@/assets/logo.png';
 const footerLinks = {
   Platform: [
     { name: 'Home', path: '/' },
@@ -31,9 +31,7 @@ export default function Footer() {
           {/* Brand */}
           <div className="lg:col-span-1">
             <Link to="/" className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center font-heading font-bold text-sm">
-                ZT
-              </div>
+              <img src={logo} alt="ZeroTrace Logo" className="h-10 w-auto object-contain" />
               <span className="font-heading font-bold text-lg">
                 Zero<span className="gradient-text">Trace</span>
               </span>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 
 const AuthContext = createContext({});
@@ -7,44 +7,64 @@ export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const profileFetchRef = useRef(null); // prevent duplicate profile fetches
 
   useEffect(() => {
     let mounted = true;
 
     const initializeAuth = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        console.log('[Auth] Initializing session...');
+        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
+
         if (error) throw error;
-        
+
         if (mounted) {
-          setUser(session?.user ?? null);
-          if (session?.user) {
-            await fetchProfile(session.user.id);
+          setSession(currentSession);
+          setUser(currentSession?.user ?? null);
+          console.log('[Auth] Session initialized:', currentSession ? 'active' : 'none');
+
+          if (currentSession?.user) {
+            await fetchProfile(currentSession.user.id);
           }
         }
       } catch (err) {
         console.error('[Auth] Initialization error:', err);
         if (mounted) {
+          setSession(null);
           setUser(null);
           setProfile(null);
         }
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setLoading(false);
+          console.log('[Auth] Loading complete');
+        }
       }
     };
 
     initializeAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, newSession) => {
         if (!mounted) return;
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user.id);
+
+        console.log('[Auth] Auth state changed:', event);
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+
+        if (newSession?.user) {
+          await fetchProfile(newSession.user.id);
         } else {
           setProfile(null);
+        }
+
+        // If the session was restored (e.g. TOKEN_REFRESHED), ensure loading is false
+        if (loading) {
+          setLoading(false);
         }
       }
     );
@@ -56,20 +76,28 @@ export function AuthProvider({ children }) {
   }, []);
 
   const fetchProfile = async (userId) => {
+    // Prevent duplicate concurrent fetches for same user
+    if (profileFetchRef.current === userId) return;
+    profileFetchRef.current = userId;
+
     try {
+      console.log('[Auth] Fetching profile for:', userId);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
-        
+
       if (error) {
         console.error('[Auth] Error fetching profile:', error);
         return;
       }
       setProfile(data);
+      console.log('[Auth] Profile loaded:', data?.username);
     } catch (err) {
       console.error('[Auth] Exception fetching profile:', err);
+    } finally {
+      profileFetchRef.current = null;
     }
   };
 
@@ -105,6 +133,7 @@ export function AuthProvider({ children }) {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (!error) {
+      setSession(null);
       setUser(null);
       setProfile(null);
     }
@@ -139,6 +168,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user,
+    session,
     profile,
     loading,
     signUp,

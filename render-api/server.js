@@ -5,44 +5,10 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import { createClient } from '@supabase/supabase-js';
-import nodemailer from 'nodemailer';
+import { sendEmail, verifySmtp } from './utils/mailer.js';
 
 const app = express();
-const PORT = process.env.PORT || 10000;
-
-// ─── Validate required env vars ───
-const requiredVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'];
-for (const v of requiredVars) {
-  if (!process.env[v]) {
-    console.error(`Missing required env variable: ${v}`);
-    process.exit(1);
-  }
-}
-
-// ─── Supabase Client (Service Role – bypasses RLS) ───
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-// ─── Nodemailer SMTP Transporter ───
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || '465'),
-  secure: process.env.SMTP_SECURE !== 'false', // true for 465, false for 587
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 15000,
-});
-
-// Verify SMTP connection on startup
-transporter.verify()
-  .then(() => console.log('✅ SMTP connection verified'))
-  .catch((err) => console.error('⚠️ SMTP verification failed:', err.message));
+const PORT = process.env.PORT || 3000;
 
 // ─── Middleware ───
 app.use(helmet());
@@ -70,13 +36,13 @@ const sanitize = (str) => {
   return str.toString().trim().replace(/</g, '&lt;').replace(/>/g, '&gt;');
 };
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'zerotrace2004@gmail.com';
-const FROM_EMAIL = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
-const FROM_NAME = process.env.SMTP_FROM_NAME || 'ZeroTrace Security';
-
 // ─── Routes ───
 app.get('/', (_req, res) => {
   res.status(200).json({ status: 'ZeroTrace API is active.' });
+});
+
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 /**
@@ -110,7 +76,17 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
       status: 'new',
     };
 
-    // 2. Insert into Supabase
+    // 2. Insert into Supabase (lazy init — only reads env vars when called)
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Supabase credentials not configured');
+      return res.status(500).json({ error: 'Server configuration error.' });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const { data, error: dbError } = await supabase
       .from('contact_messages')
       .insert([sanitizedData])
@@ -125,54 +101,44 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
     console.log(`✅ Contact message saved [ID: ${data.id}]`);
 
     // 3. Send Admin Notification Email
+    const adminEmail = process.env.ADMIN_EMAIL || 'zerotrace2004@gmail.com';
     const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-    try {
-      await transporter.sendMail({
-        from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-        to: ADMIN_EMAIL,
-        subject: `New Contact Request — ${sanitizedData.name}`,
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#f0f0f0;padding:24px;border-radius:12px;">
-            <h2 style="color:#ef2f88;margin-top:0;">New Contact Submission</h2>
-            <table style="width:100%;border-collapse:collapse;">
-              <tr><td style="padding:8px 0;color:#999;">Name</td><td style="padding:8px 0;">${sanitizedData.name}</td></tr>
-              <tr><td style="padding:8px 0;color:#999;">Email</td><td style="padding:8px 0;">${sanitizedData.email}</td></tr>
-              <tr><td style="padding:8px 0;color:#999;">Phone</td><td style="padding:8px 0;">${sanitizedData.phone || 'Not provided'}</td></tr>
-              <tr><td style="padding:8px 0;color:#999;">Service</td><td style="padding:8px 0;">${sanitizedData.service}</td></tr>
-              <tr><td style="padding:8px 0;color:#999;">Timestamp</td><td style="padding:8px 0;">${timestamp}</td></tr>
-            </table>
-            <div style="margin-top:16px;padding:16px;background:#111;border-radius:8px;">
-              <p style="color:#999;margin:0 0 8px;">Message:</p>
-              <p style="margin:0;line-height:1.6;">${sanitizedData.message}</p>
-            </div>
+
+    await sendEmail(
+      adminEmail,
+      `New Contact Request — ${sanitizedData.name}`,
+      `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#f0f0f0;padding:24px;border-radius:12px;">
+          <h2 style="color:#ef2f88;margin-top:0;">New Contact Submission</h2>
+          <table style="width:100%;border-collapse:collapse;">
+            <tr><td style="padding:8px 0;color:#999;">Name</td><td style="padding:8px 0;">${sanitizedData.name}</td></tr>
+            <tr><td style="padding:8px 0;color:#999;">Email</td><td style="padding:8px 0;">${sanitizedData.email}</td></tr>
+            <tr><td style="padding:8px 0;color:#999;">Phone</td><td style="padding:8px 0;">${sanitizedData.phone || 'Not provided'}</td></tr>
+            <tr><td style="padding:8px 0;color:#999;">Service</td><td style="padding:8px 0;">${sanitizedData.service}</td></tr>
+            <tr><td style="padding:8px 0;color:#999;">Timestamp</td><td style="padding:8px 0;">${timestamp}</td></tr>
+          </table>
+          <div style="margin-top:16px;padding:16px;background:#111;border-radius:8px;">
+            <p style="color:#999;margin:0 0 8px;">Message:</p>
+            <p style="margin:0;line-height:1.6;">${sanitizedData.message}</p>
           </div>
-        `,
-      });
-      console.log('✅ Admin notification email sent');
-    } catch (mailErr) {
-      console.error('⚠️ Failed to send admin email:', mailErr.message);
-    }
+        </div>
+      `
+    );
 
     // 4. Send User Acknowledgement Email
-    try {
-      await transporter.sendMail({
-        from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-        to: sanitizedData.email,
-        subject: 'We received your message — ZeroTrace',
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#f0f0f0;padding:24px;border-radius:12px;">
-            <h2 style="color:#ef2f88;margin-top:0;">Thank you, ${sanitizedData.name}!</h2>
-            <p style="color:#ccc;line-height:1.6;">We have received your message and our team will get back to you within 24 hours.</p>
-            <p style="color:#ccc;line-height:1.6;">If your inquiry is urgent, please reach out directly at <a href="mailto:${ADMIN_EMAIL}" style="color:#ef2f88;">${ADMIN_EMAIL}</a>.</p>
-            <hr style="border:none;border-top:1px solid #222;margin:24px 0;">
-            <p style="color:#666;font-size:12px;margin:0;">&copy; ${new Date().getFullYear()} ZeroTrace Security. All rights reserved.</p>
-          </div>
-        `,
-      });
-      console.log('✅ User acknowledgement email sent');
-    } catch (mailErr) {
-      console.error('⚠️ Failed to send user acknowledgement:', mailErr.message);
-    }
+    await sendEmail(
+      sanitizedData.email,
+      'We received your message — ZeroTrace',
+      `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#f0f0f0;padding:24px;border-radius:12px;">
+          <h2 style="color:#ef2f88;margin-top:0;">Thank you, ${sanitizedData.name}!</h2>
+          <p style="color:#ccc;line-height:1.6;">We have received your message and our team will get back to you within 24 hours.</p>
+          <p style="color:#ccc;line-height:1.6;">If your inquiry is urgent, please reach out directly at <a href="mailto:${adminEmail}" style="color:#ef2f88;">${adminEmail}</a>.</p>
+          <hr style="border:none;border-top:1px solid #222;margin:24px 0;">
+          <p style="color:#666;font-size:12px;margin:0;">&copy; ${new Date().getFullYear()} ZeroTrace Security. All rights reserved.</p>
+        </div>
+      `
+    );
 
     return res.status(200).json({ success: true, message: 'Message sent successfully.' });
   } catch (error) {
@@ -181,7 +147,19 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
   }
 });
 
-// ─── Start Server ───
-app.listen(PORT, () => {
+// ─── Start Server (runtime only — never reached during build) ───
+app.listen(PORT, async () => {
   console.log(`✅ ZeroTrace API running on port ${PORT}`);
+
+  // Validate env vars at runtime startup, not build time
+  const missing = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']
+    .filter((v) => !process.env[v]);
+
+  if (missing.length > 0) {
+    console.warn(`⚠️ Missing environment variables: ${missing.join(', ')}`);
+    console.warn('Some features may not work correctly.');
+  }
+
+  // Verify SMTP at runtime
+  await verifySmtp();
 });

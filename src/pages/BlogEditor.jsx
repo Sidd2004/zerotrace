@@ -11,7 +11,7 @@ import toast from 'react-hot-toast';
 export default function BlogEditor() {
   const { slug } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -23,8 +23,9 @@ export default function BlogEditor() {
   const isEditing = !!slug;
 
   useEffect(() => {
-    if (slug) fetchPost();
-  }, [slug]);
+    if (authLoading) return; // Wait for auth to initialize
+    if (slug && user) fetchPost();
+  }, [slug, authLoading, user]);
 
   const fetchPost = async () => {
     const { data, error } = await supabase
@@ -109,6 +110,33 @@ export default function BlogEditor() {
     }
   };
 
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      toast.loading('Uploading image...', { id: 'upload' });
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = `blog-covers/${user.id}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('blog-images')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from('blog-images')
+        .getPublicUrl(filePath);
+
+      setCoverImage(data.publicUrl);
+      toast.success('Image uploaded successfully!', { id: 'upload' });
+    } catch (error) {
+      toast.error(`Upload failed: ${error.message}. Make sure 'blog-images' bucket exists!`, { id: 'upload' });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-bg-primary pt-24 pb-16">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -159,14 +187,28 @@ export default function BlogEditor() {
             className="w-full bg-transparent border-none text-3xl md:text-4xl font-heading font-bold text-text-primary placeholder:text-text-muted focus:outline-none mb-6"
           />
 
-          {/* Cover Image URL */}
-          <input
-            type="url"
-            value={coverImage}
-            onChange={(e) => setCoverImage(e.target.value)}
-            placeholder="Cover image URL (optional)"
-            className="w-full bg-bg-card border border-border rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 mb-4 transition-colors"
-          />
+          {/* Cover Image Input */}
+          <div className="mb-4 space-y-2">
+            <div className="flex gap-4 items-center">
+              <input
+                type="url"
+                value={coverImage}
+                onChange={(e) => setCoverImage(e.target.value)}
+                placeholder="Cover image URL (optional)"
+                className="flex-1 bg-bg-card border border-border rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
+              />
+              <span className="text-text-muted text-sm border-x border-border px-4 py-1">OR</span>
+              <label className="flex items-center justify-center bg-bg-card border border-border rounded-xl px-6 py-3 text-sm text-text-primary cursor-pointer hover:border-primary/50 hover:bg-white/5 transition-all">
+                <span className="font-medium">Upload File</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
 
           {/* Tags */}
           <input

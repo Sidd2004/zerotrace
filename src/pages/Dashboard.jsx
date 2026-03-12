@@ -17,7 +17,7 @@ import GlassCard from '@/components/GlassCard';
 import toast from 'react-hot-toast';
 
 export default function Dashboard() {
-  const { user, profile, signOut, updateProfile } = useAuth();
+  const { user, profile, loading: authLoading, signOut, updateProfile } = useAuth();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState('posts');
@@ -39,8 +39,13 @@ export default function Dashboard() {
   }, [profile]);
 
   useEffect(() => {
+    if (authLoading) return; // Wait for auth to initialize
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     fetchPosts();
-  }, [user]);
+  }, [authLoading, user]);
 
   const fetchPosts = async () => {
     if (!user) {
