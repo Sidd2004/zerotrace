@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { HiSearch, HiClock, HiUser } from 'react-icons/hi';
+import { HiSearch, HiClock, HiUser, HiEye } from 'react-icons/hi';
 import GridBackground from '@/components/GridBackground';
 import GlassCard from '@/components/GlassCard';
 import { supabase } from '@/lib/supabase';
@@ -29,7 +29,8 @@ export default function Blog() {
         .from('posts')
         .select(`
           *,
-          author:profiles(username, avatar_url)
+          author:profiles(username, avatar_url),
+          post_tags(tag:tags(name))
         `)
         .eq('status', 'published')
         .order('created_at', { ascending: false });
@@ -47,16 +48,19 @@ export default function Blog() {
   };
 
   // Get all unique tags
-  const allTags = [...new Set(posts.flatMap((p) => p.tags || []))];
+  const allTags = [...new Set(posts.flatMap((p) => 
+    p.post_tags?.map(pt => pt.tag?.name).filter(Boolean) || []
+  ))];
 
   // Filter posts
   const filteredPosts = posts.filter((post) => {
+    const postTags = post.post_tags?.map(pt => pt.tag?.name).filter(Boolean) || [];
     const matchesSearch =
       !search ||
       post.title.toLowerCase().includes(search.toLowerCase()) ||
       (post.content && post.content.toLowerCase().includes(search.toLowerCase()));
     const matchesTag =
-      !selectedTag || (post.tags && post.tags.includes(selectedTag));
+      !selectedTag || postTags.includes(selectedTag);
     return matchesSearch && matchesTag;
   });
 
@@ -160,41 +164,42 @@ export default function Blog() {
                   transition={{ duration: 0.4, delay: i * 0.05 }}
                 >
                   <Link to={`/blog/${post.slug}`}>
-                    <GlassCard className="h-full group cursor-pointer">
-                      {/* Cover image */}
-                      {post.cover_image && (
-                        <div className="w-full h-40 rounded-lg overflow-hidden mb-4 -mt-1">
-                          <img
-                            src={post.cover_image}
-                            alt={post.title}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
-                        </div>
-                      )}
-
-                      {/* Tags */}
-                      {post.tags && post.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mb-3">
-                          {post.tags.slice(0, 3).map((tag) => (
-                            <span
-                              key={tag}
-                              className="px-2 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                    <GlassCard className="h-full group cursor-pointer flex flex-col">
+                      {/* Cover image — always shown, falls back to ZeroTrace logo */}
+                      <div className="w-full h-40 rounded-lg overflow-hidden mb-4 -mt-1 bg-bg-card flex items-center justify-center">
+                        <img
+                          src={post.cover_image || '/favicon.png'}
+                          alt={post.title}
+                          className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${!post.cover_image ? 'object-contain p-6 opacity-40' : ''}`}
+                        />
+                      </div>
 
                       {/* Title */}
                       <h2 className="font-heading font-semibold text-lg mb-2 group-hover:text-primary transition-colors line-clamp-2">
                         {post.title}
                       </h2>
 
-                      {/* Excerpt */}
-                      <p className="text-text-muted text-sm leading-relaxed mb-4 line-clamp-3">
-                        {post.excerpt || truncateText(stripMarkdown(post.content), 120)}
+                      {/* Excerpt / Preview snippet */}
+                      <p className="text-text-muted text-sm leading-relaxed mb-3 line-clamp-3">
+                        {post.excerpt || truncateText(stripMarkdown(post.content), 160)}
                       </p>
+
+                      {/* Tags */}
+                      {post.post_tags && post.post_tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {post.post_tags.slice(0, 3).map((pt, idx) => {
+                            if (!pt.tag?.name) return null;
+                            return (
+                              <span
+                                key={`${pt.tag.name}-${idx}`}
+                                className="px-2 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20"
+                              >
+                                {pt.tag.name}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
 
                       {/* Meta */}
                       <div className="flex items-center gap-4 text-xs text-text-muted mt-auto pt-4 border-t border-border">
@@ -206,6 +211,12 @@ export default function Blog() {
                           <HiClock size={12} />
                           <span>{formatDate(post.created_at)}</span>
                         </div>
+                        {typeof post.views === 'number' && (
+                          <div className="flex items-center gap-1.5 ml-auto">
+                            <HiEye size={12} />
+                            <span>{post.views}</span>
+                          </div>
+                        )}
                       </div>
                     </GlassCard>
                   </Link>

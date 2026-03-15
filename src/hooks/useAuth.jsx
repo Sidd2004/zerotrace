@@ -189,8 +189,16 @@ export function AuthProvider({ children }) {
     return { data, error }
   }
 
+  // Enhance user object with profile data for easier access
+  const enhancedUser = user ? {
+    ...user,
+    username: profile?.username,
+    avatar_url: profile?.avatar_url,
+    role: profile?.role || 'user',
+  } : null
+
   const value = {
-    user,
+    user: enhancedUser,
     session,
     profile,
     loading,

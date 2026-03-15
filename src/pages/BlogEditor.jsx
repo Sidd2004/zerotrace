@@ -5,8 +5,11 @@ import TipTapEditor from '@/components/TipTapEditor';
 import { HiSave, HiEye, HiTrash } from 'react-icons/hi';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
-import { generateSlug, stripMarkdown, truncateText } from '@/utils/helpers';
+import { generateSlug, stripMarkdown, stripHtmlTags, truncateText } from '@/utils/helpers';
 import toast from 'react-hot-toast';
+import DOMPurify from 'dompurify';
+import { marked } from 'marked';
+import JSZip from 'jszip';
 
 export default function BlogEditor() {
   const { slug } = useParams();
@@ -15,22 +18,34 @@ export default function BlogEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [tags, setTags] = useState('');
+  const [availableTags, setAvailableTags] = useState([]);
+  const [selectedTags, setSelectedTags] = useState([]);
   const [coverImage, setCoverImage] = useState('');
   const [status, setStatus] = useState('draft');
   const [saving, setSaving] = useState(false);
   const [postId, setPostId] = useState(null);
   const isEditing = !!slug;
 
+  const fetchTags = async () => {
+    const { data } = await supabase.from('tags').select('id, name').order('name');
+    if (data) setAvailableTags(data);
+  };
+
   useEffect(() => {
     if (authLoading) return; // Wait for auth to initialize
+    fetchTags();
     if (slug && user) fetchPost();
   }, [slug, authLoading, user]);
 
   const fetchPost = async () => {
     const { data, error } = await supabase
       .from('posts')
-      .select('*')
+      .select(`
+        *,
+        post_tags (
+          tag:tags (id, name)
+        )
+      `)
       .eq('slug', slug)
       .eq('author_id', user?.id)
       .single();
@@ -38,7 +53,8 @@ export default function BlogEditor() {
     if (data) {
       setTitle(data.title);
       setContent(data.content || '');
-      setTags(data.tags ? data.tags.join(', ') : '');
+      const existingTags = data.post_tags?.map(pt => pt.tag).filter(Boolean) || [];
+      setSelectedTags(existingTags);
       setCoverImage(data.cover_image || '');
       setStatus(data.status);
       setPostId(data.id);
@@ -56,16 +72,64 @@ export default function BlogEditor() {
 
     setSaving(true);
     const postSlug = generateSlug(title) + '-' + Date.now().toString(36);
-    const tagArray = tags
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-    const excerpt = truncateText(stripMarkdown(content), 160);
+    // Tags are now handled via relation
+
+    // Generate excerpt from HTML or markdown content
+    const isHtml = content && content.trim().startsWith('<');
+    const excerpt = truncateText(
+      isHtml ? stripHtmlTags(content) : stripMarkdown(content),
+      160
+    );
+
+    // Process external images — download and re-upload via PHP endpoint
+    let processedContent = content;
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(content, 'text/html');
+      const imgs = doc.querySelectorAll('img[src]');
+      let changed = false;
+
+      for (const img of imgs) {
+        const src = img.getAttribute('src') || '';
+        // Only process external URLs (not already on zerotrace.in)
+        if (/^https?:\/\//i.test(src) && !src.includes('zerotrace.in')) {
+          try {
+            const response = await fetch(src);
+            if (!response.ok) continue;
+            const blob = await response.blob();
+            // Determine extension from content type or URL
+            const contentType = blob.type || '';
+            const extMap = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+            const ext = extMap[contentType] || src.split('.').pop().split('?')[0].toLowerCase() || 'jpg';
+            const uniqueName = `img_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+            const file = new File([blob], uniqueName, { type: contentType || 'image/jpeg' });
+
+            const formData = new FormData();
+            formData.append('image', file);
+            const uploadRes = await fetch('/upload-image.php', { method: 'POST', body: formData });
+            if (uploadRes.ok) {
+              const data = await uploadRes.json();
+              if (data.url) {
+                img.setAttribute('src', data.url);
+                changed = true;
+              }
+            }
+          } catch (err) {
+            console.warn(`Failed to download external image: ${src}`, err);
+          }
+        }
+      }
+
+      if (changed) {
+        processedContent = doc.body.innerHTML;
+      }
+    } catch (err) {
+      console.warn('External image processing error:', err);
+    }
 
     const postData = {
       title: title.trim(),
-      content,
-      tags: tagArray,
+      content: processedContent,
       cover_image: coverImage || null,
       excerpt,
       status: publishStatus,
@@ -73,23 +137,33 @@ export default function BlogEditor() {
     };
 
     try {
+      let savedPostId = postId;
       if (isEditing && postId) {
         const { error } = await supabase
           .from('posts')
           .update(postData)
           .eq('id', postId);
         if (error) throw error;
-        toast.success(
-          publishStatus === 'published' ? 'Post published!' : 'Post saved!'
-        );
       } else {
         postData.slug = postSlug;
-        const { error } = await supabase.from('posts').insert(postData);
+        const { data, error } = await supabase.from('posts').insert(postData).select().single();
         if (error) throw error;
-        toast.success(
-          publishStatus === 'published' ? 'Post published!' : 'Draft saved!'
-        );
+        savedPostId = data.id;
       }
+
+      // Handle tags
+      if (isEditing && postId) {
+        await supabase.from('post_tags').delete().eq('post_id', savedPostId);
+      }
+      if (selectedTags.length > 0) {
+        const tagInserts = selectedTags.map(tag => ({
+          post_id: savedPostId,
+          tag_id: tag.id
+        }));
+        await supabase.from('post_tags').insert(tagInserts);
+      }
+
+      toast.success(publishStatus === 'published' ? 'Post published!' : 'Post saved!');
       navigate('/dashboard');
     } catch (error) {
       toast.error(error.message || 'Failed to save');
@@ -110,31 +184,173 @@ export default function BlogEditor() {
     }
   };
 
-  const handleImageUpload = async (e) => {
+  const handleSmartUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    const ext = file.name.split('.').pop().toLowerCase();
+    const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+
     try {
-      toast.loading('Uploading image...', { id: 'upload' });
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const filePath = `blog-covers/${user.id}/${fileName}`;
+      if (imageExtensions.includes(ext)) {
+        // Image file → upload via PHP endpoint as cover image
+        toast.loading('Uploading cover image...', { id: 'smart-upload' });
+        const formData = new FormData();
+        formData.append('image', file);
 
-      const { error: uploadError } = await supabase.storage
-        .from('blog-images')
-        .upload(filePath, file);
+        const res = await fetch('/upload-image.php', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `Upload failed (${res.status})`);
+        }
+        const data = await res.json();
+        if (!data.url) throw new Error('Upload did not return a URL');
+        setCoverImage(data.url);
+        toast.success('Cover image uploaded!', { id: 'smart-upload' });
 
-      if (uploadError) throw uploadError;
+      } else if (ext === 'html' || ext === 'htm') {
+        // HTML file → import into editor content
+        toast.loading('Importing HTML...', { id: 'smart-upload' });
+        const rawHtml = await file.text();
+        const cleanHtml = DOMPurify.sanitize(rawHtml, {
+          ADD_TAGS: ['img'],
+          ADD_ATTR: ['src', 'alt', 'href', 'target', 'rel', 'class'],
+        });
+        setContent(cleanHtml);
+        toast.success('HTML imported!', { id: 'smart-upload' });
 
-      const { data } = supabase.storage
-        .from('blog-images')
-        .getPublicUrl(filePath);
+      } else if (ext === 'md' || ext === 'markdown') {
+        // Markdown file → convert to HTML and import
+        toast.loading('Importing Markdown...', { id: 'smart-upload' });
+        const text = await file.text();
+        const html = await marked.parse(text);
+        const cleanHtml = DOMPurify.sanitize(html);
+        setContent(cleanHtml);
+        toast.success('Markdown imported!', { id: 'smart-upload' });
 
-      setCoverImage(data.publicUrl);
-      toast.success('Image uploaded successfully!', { id: 'upload' });
+      } else if (ext === 'zip') {
+        // ZIP file → extract, find content, upload images
+        toast.loading('Extracting ZIP...', { id: 'smart-upload' });
+        const zip = await JSZip.loadAsync(file);
+        const entries = Object.values(zip.files).filter((f) => !f.dir);
+
+        let contentText = null;
+        let contentExt = null;
+        const imageBlobs = new Map();
+
+        const allowedExts = ['.html', '.htm', '.md', '.markdown', '.png', '.jpg', '.jpeg', '.webp', '.gif'];
+        const imgExts = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+        const contentExts = ['.md', '.markdown', '.html', '.htm'];
+
+        for (const entry of entries) {
+          const name = entry.name;
+          if (name.includes('..') || name.startsWith('/')) continue;
+          const baseName = name.split('/').pop().split('\\').pop();
+          if (baseName.startsWith('.') || name.startsWith('__MACOSX')) continue;
+
+          const fileExt = '.' + baseName.split('.').pop().toLowerCase();
+
+          // Sanitization: strict allowlist
+          if (!allowedExts.includes(fileExt)) continue;
+
+          if (contentExts.includes(fileExt) && !contentText) {
+            const data = await entry.async('arraybuffer');
+            contentText = new TextDecoder().decode(data);
+            contentExt = fileExt;
+          } else if (imgExts.includes(fileExt)) {
+            const data = await entry.async('arraybuffer');
+            // Store using the full ZIP path (lowercase) instead of just basename
+            imageBlobs.set(name.toLowerCase(), new Blob([data]));
+          }
+        }
+
+        // Upload extracted images via PHP
+        const uploadedUrls = new Map();
+        let uploaded = 0;
+        for (const [name, blob] of imageBlobs) {
+          try {
+            const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
+            const ext2 = '.' + name.split('.').pop().toLowerCase();
+            const imgFile = new File([blob], name, { type: mimeMap[ext2] || 'application/octet-stream' });
+            const formData = new FormData();
+            formData.append('image', imgFile);
+
+            const res = await fetch('/upload-image.php', { method: 'POST', body: formData });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.url) {
+                uploadedUrls.set(name, data.url);
+                uploaded++;
+              }
+            }
+          } catch (err) {
+            console.warn(`Failed to upload ${name}:`, err);
+          }
+        }
+
+        // Process content
+        if (contentText) {
+          let html;
+          if (contentExt === '.html') {
+            html = contentText;
+          } else {
+            html = await marked.parse(contentText);
+          }
+
+          // Rewrite local image paths to uploaded URLs
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          const imgs = doc.querySelectorAll('img[src]');
+
+          for (const img of imgs) {
+            const src = img.getAttribute('src') || '';
+            if (/^https?:\/\//i.test(src) || src.startsWith('data:')) continue;
+
+            // Normalize path (replace backslashes, remove ./ and ../)
+            let normalizedPath = src.replace(/\\/g, '/').toLowerCase();
+            normalizedPath = normalizedPath.replace(/^\.\//, '');
+            while (normalizedPath.startsWith('../')) {
+              normalizedPath = normalizedPath.slice(3);
+            }
+
+            const imgBaseName = normalizedPath.split('/').pop();
+
+            // Try to find the image in uploadedUrls, matching exact normalized path or fallback
+            let hostedUrl = uploadedUrls.get(normalizedPath);
+            if (!hostedUrl) {
+              const matchingKey = Array.from(uploadedUrls.keys()).find(
+                k => k === normalizedPath || k.endsWith('/' + normalizedPath) || k.endsWith('/' + imgBaseName) || k === imgBaseName
+              );
+              if (matchingKey) {
+                hostedUrl = uploadedUrls.get(matchingKey);
+              }
+            }
+
+            if (hostedUrl) {
+              img.setAttribute('src', hostedUrl);
+            }
+          }
+
+          html = doc.body.innerHTML;
+          const cleanHtml = DOMPurify.sanitize(html, {
+            ADD_TAGS: ['img'],
+            ADD_ATTR: ['src', 'alt', 'href', 'target', 'rel', 'class'],
+          });
+          setContent(cleanHtml);
+          toast.success(`ZIP imported! ${uploaded} image(s) uploaded.`, { id: 'smart-upload' });
+        } else {
+          toast.error('No .md or .html content found in ZIP.', { id: 'smart-upload' });
+        }
+
+      } else {
+        toast.error('Unsupported file type. Use ZIP, HTML, MD, or image files.');
+      }
     } catch (error) {
-      toast.error(`Upload failed: ${error.message}. Make sure 'blog-images' bucket exists!`, { id: 'upload' });
+      toast.error(`Upload failed: ${error.message}`, { id: 'smart-upload' });
     }
+
+    // Reset the input
+    e.target.value = '';
   };
 
   return (
@@ -187,9 +403,12 @@ export default function BlogEditor() {
             className="w-full bg-transparent border-none text-3xl md:text-4xl font-heading font-bold text-text-primary placeholder:text-text-muted focus:outline-none mb-6"
           />
 
-          {/* Cover Image Input */}
-          <div className="mb-4 space-y-2">
-            <div className="flex gap-4 items-center">
+          {/* Cover Image */}
+          <div className="mb-6 space-y-2">
+            <label className="block text-sm font-medium text-text-primary ml-1">
+              Cover Image
+            </label>
+            <div className="flex flex-col md:flex-row gap-4 md:items-center">
               <input
                 type="url"
                 value={coverImage}
@@ -197,27 +416,87 @@ export default function BlogEditor() {
                 placeholder="Cover image URL (optional)"
                 className="flex-1 bg-bg-card border border-border rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
               />
-              <span className="text-text-muted text-sm border-x border-border px-4 py-1">OR</span>
-              <label className="flex items-center justify-center bg-bg-card border border-border rounded-xl px-6 py-3 text-sm text-text-primary cursor-pointer hover:border-primary/50 hover:bg-white/5 transition-all">
-                <span className="font-medium">Upload File</span>
+              <span className="hidden md:block text-text-muted text-sm border-x border-border px-4 py-1">OR</span>
+              <span className="block md:hidden text-text-muted text-sm text-center">OR</span>
+              <label className="flex items-center justify-center bg-bg-card border border-border rounded-xl px-6 py-3 text-sm text-text-primary cursor-pointer hover:border-primary/50 hover:bg-white/5 transition-all whitespace-nowrap">
+                <span className="font-medium">Upload Cover Image</span>
                 <input
                   type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
+                  accept=".png,.jpg,.jpeg,.webp,image/*"
+                  onChange={handleSmartUpload}
                   className="hidden"
                 />
               </label>
             </div>
+            {coverImage && (
+              <div className="flex items-center gap-3 mt-2">
+                <img src={coverImage} alt="Cover preview" className="w-20 h-14 rounded-lg object-cover border border-border" />
+                <button
+                  type="button"
+                  onClick={() => setCoverImage('')}
+                  className="text-xs text-error hover:text-error/80 transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Import Writeup */}
+          <div className="mb-6 space-y-2">
+            <label className="block text-sm font-medium text-text-primary ml-1">
+              Import Writeup
+            </label>
+            <div className="flex">
+              <label className="flex w-full md:w-auto items-center justify-center bg-bg-card border border-border rounded-xl px-6 py-3 text-sm text-text-primary cursor-pointer hover:border-primary/50 hover:bg-white/5 transition-all">
+                <span className="font-medium">Upload Writeup (ZIP / HTML / Markdown)</span>
+                <input
+                  type="file"
+                  accept=".zip,.html,.htm,.md,.markdown"
+                  onChange={handleSmartUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+            <p className="text-text-muted text-xs ml-1 mt-1">
+              Supports ZIP exports (Notion), HTML files, or Markdown writeups.
+            </p>
           </div>
 
           {/* Tags */}
-          <input
-            type="text"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            placeholder="Tags (comma separated, e.g. web, xss, ctf)"
-            className="w-full bg-bg-card border border-border rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 mb-6 transition-colors"
-          />
+          <div className="mb-6 space-y-2">
+            <label className="block text-sm font-medium text-text-primary ml-1">
+              Select Tags
+            </label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {availableTags.map((tag) => {
+                const isSelected = selectedTags.some(t => t.id === tag.id);
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedTags(selectedTags.filter(t => t.id !== tag.id));
+                      } else {
+                        setSelectedTags([...selectedTags, tag]);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                      isSelected 
+                        ? 'bg-primary/20 text-primary border-primary/50' 
+                        : 'bg-bg-card text-text-muted border-border hover:border-primary/30'
+                    }`}
+                  >
+                    {isSelected ? '[✓]' : '[ ]'} {tag.name}
+                  </button>
+                );
+              })}
+            </div>
+            {availableTags.length === 0 && (
+              <p className="text-text-muted text-xs ml-1">No tags available.</p>
+            )}
+          </div>
 
           {/* Status */}
           <div className="flex items-center gap-3 mb-6">
@@ -241,7 +520,7 @@ export default function BlogEditor() {
           <TipTapEditor
             value={content}
             onChange={setContent}
-            placeholder="Start writing your post..."
+            placeholder="Write your blog content here... Supports Markdown and HTML"
           />
         </motion.div>
       </div>

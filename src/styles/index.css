@@ -339,10 +339,16 @@ h1, h2, h3, h4, h5, h6 {
    ============================================ */
 .tiptap-editor-wrapper {
   background: #0b0b0b;
-  border: 1px solid #1a1a1f;
+  border: 1px solid #2a2a35;
   border-radius: 12px;
   overflow: hidden;
   margin-bottom: 2rem;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.tiptap-editor-wrapper:focus-within {
+  border-color: rgba(239, 47, 136, 0.4);
+  box-shadow: 0 0 0 3px rgba(239, 47, 136, 0.08);
 }
 
 /* Toolbar */

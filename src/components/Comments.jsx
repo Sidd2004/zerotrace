@@ -171,7 +171,7 @@ function CommentItem({
   const [editText, setEditText] = useState(comment.content);
 
   const isAuthor = user?.id === comment.author_id;
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || profile?.role === 'admin';
   const nestedReplies = allComments.filter(
     (c) => c.parent_comment_id === comment.id
   );

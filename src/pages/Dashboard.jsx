@@ -25,6 +25,11 @@ export default function Dashboard() {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Tags TagManagement
+  const [tags, setTags] = useState([]);
+  const [newTagName, setNewTagName] = useState('');
+  const [loadingTags, setLoadingTags] = useState(false);
+
   // Profile editing
   const [editingProfile, setEditingProfile] = useState(false);
   const [username, setUsername] = useState('');
@@ -57,7 +62,7 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from('posts')
-        .select('*')
+        .select('*, post_tags(tag:tags(name))')
         .eq('author_id', user.id)
         .order('created_at', { ascending: false });
         
@@ -72,6 +77,52 @@ export default function Dashboard() {
       toast.error('An unexpected error occurred while loading posts');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTags = async () => {
+    setLoadingTags(true);
+    const { data: tagsData, error: tagsError } = await supabase
+      .from('tags')
+      .select(`
+        id,
+        name,
+        post_tags (count)
+      `)
+      .order('name');
+    
+    if (tagsError) toast.error('Failed to load tags');
+    else setTags(tagsData);
+    setLoadingTags(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'tags') {
+      fetchTags();
+    }
+  }, [activeTab]);
+
+  const handleCreateTag = async (e) => {
+    e.preventDefault();
+    if (!newTagName.trim()) return;
+    const { error } = await supabase.from('tags').insert({ name: newTagName.trim() });
+    if (error) {
+      toast.error('Failed to create tag. It might already exist.');
+    } else {
+      toast.success('Tag created!');
+      setNewTagName('');
+      fetchTags();
+    }
+  };
+
+  const handleDeleteTag = async (id) => {
+    if (!confirm('Are you sure you want to delete this tag?')) return;
+    const { error } = await supabase.from('tags').delete().eq('id', id);
+    if (error) {
+      toast.error('Failed to delete tag');
+    } else {
+      toast.success('Tag deleted');
+      fetchTags();
     }
   };
 
@@ -150,6 +201,9 @@ export default function Dashboard() {
     { id: 'drafts', label: 'Drafts', count: draftPosts.length },
     { id: 'profile', label: 'Profile' },
   ];
+  if (user?.role === 'admin') {
+    tabs.push({ id: 'tags', label: 'Tag Management' });
+  }
 
   return (
     <div className="min-h-screen bg-bg-primary pt-24 pb-16">
@@ -264,16 +318,19 @@ export default function Dashboard() {
                           <div className="flex items-center gap-2 mt-1 text-xs text-text-muted">
                             <HiClock size={12} />
                             <span>{formatDate(post.created_at)}</span>
-                            {post.tags &&
-                              post.tags.length > 0 &&
-                              post.tags.slice(0, 2).map((tag) => (
-                                <span
-                                  key={tag}
-                                  className="px-1.5 py-0.5 rounded bg-bg-card text-text-muted text-[10px]"
-                                >
-                                  {tag}
-                                </span>
-                              ))}
+                            {post.post_tags &&
+                              post.post_tags.length > 0 &&
+                              post.post_tags.slice(0, 2).map((pt, idx) => {
+                                if (!pt.tag?.name) return null;
+                                return (
+                                  <span
+                                    key={`${pt.tag.name}-${idx}`}
+                                    className="px-1.5 py-0.5 rounded bg-bg-card text-text-muted text-[10px]"
+                                  >
+                                    {pt.tag.name}
+                                  </span>
+                                );
+                              })}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -436,6 +493,62 @@ export default function Dashboard() {
                       {formatDate(profile?.created_at)}
                     </p>
                   </div>
+                </div>
+              )}
+            </GlassCard>
+          )}
+
+          {activeTab === 'tags' && (
+            <GlassCard hover={false}>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="font-heading font-semibold text-lg">Tag Management</h3>
+              </div>
+
+              <form onSubmit={handleCreateTag} className="flex gap-3 mb-6">
+                <input
+                  type="text"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  placeholder="New tag name (e.g. ctf)"
+                  className="flex-1 bg-bg-primary border border-border rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
+                />
+                <button type="submit" disabled={!newTagName.trim()} className="btn-gradient !py-2.5 !px-6 text-sm flex-shrink-0">
+                  Add Tag
+                </button>
+              </form>
+
+              {loadingTags ? (
+                <div className="text-center py-8 text-text-muted">Loading tags...</div>
+              ) : tags.length === 0 ? (
+                <div className="text-center py-8 text-text-muted">No tags found.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-border/50">
+                        <th className="py-3 px-4 text-xs font-semibold text-text-muted uppercase tracking-wider">Tag Name</th>
+                        <th className="py-3 px-4 text-xs font-semibold text-text-muted uppercase tracking-wider">Posts Using Tag</th>
+                        <th className="py-3 px-4 text-xs font-semibold text-text-muted uppercase tracking-wider text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tags.map((tag) => (
+                        <tr key={tag.id} className="border-b border-border/50 hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-4 text-sm font-medium text-text-primary">{tag.name}</td>
+                          <td className="py-3 px-4 text-sm text-text-muted">{tag.post_tags?.[0]?.count || 0}</td>
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              onClick={() => handleDeleteTag(tag.id)}
+                              className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error/10 transition-all inline-flex"
+                              title="Delete tag"
+                            >
+                              <HiTrash size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </GlassCard>
