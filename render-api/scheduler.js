@@ -2,8 +2,8 @@
  * scheduler.js — ZeroTrace Meeting Scheduler
  *
  * Standalone module that integrates with Google Calendar (for scheduling)
- * and Resend (for transactional email). Auth is read entirely from
- * process.env — no credentials files required.
+ * and SMTP via Nodemailer/Brevo (for transactional email). Auth is read
+ * entirely from process.env — no credentials files required.
  *
  * Exported functions:
  *   - check_calendar(date, start_time, end_time, timezone)
@@ -12,7 +12,7 @@
  */
 
 import { google } from 'googleapis';
-import { Resend } from 'resend';
+import { sendEmail as smtpSendEmail } from './utils/mailer.js';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -189,9 +189,8 @@ export async function create_meeting(title, date, start_time, end_time, attendee
 // ─── 3. send_email ───────────────────────────────────────────────────────────
 
 /**
- * Sends an HTML email via the Resend API.
- * Requires RESEND_API_KEY in process.env.
- * From address defaults to RESEND_FROM_EMAIL or 'meetings@zerotrace.in'.
+ * Sends an HTML email via the SMTP mailer (Brevo/Sendinblue).
+ * Uses the same SMTP configuration as the contact form emails.
  *
  * @param {string} to_email   - Recipient email address
  * @param {string} subject    - Email subject line
@@ -207,29 +206,14 @@ export async function send_email(to_email, subject, body_html) {
     throw new Error(`send_email: "${to_email}" is not a valid email address.`);
   }
 
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    throw new Error('send_email: RESEND_API_KEY environment variable is not set.');
-  }
-
-  const fromEmail = process.env.RESEND_FROM_EMAIL || 'meetings@zerotrace.in';
-  const fromName  = process.env.RESEND_FROM_NAME  || 'ZeroTrace';
-
   try {
-    const resend = new Resend(apiKey);
+    const result = await smtpSendEmail(to_email, subject, body_html);
 
-    const { data, error } = await resend.emails.send({
-      from: `${fromName} <${fromEmail}>`,
-      to:   [to_email],
-      subject,
-      html: body_html,
-    });
-
-    if (error) {
-      throw new Error(error.message ?? JSON.stringify(error));
+    if (!result) {
+      throw new Error('SMTP mailer returned false — check SMTP configuration (SMTP_HOST, SMTP_USER, SMTP_PASS).');
     }
 
-    console.log(`✅ Email sent via Resend to ${to_email} [id: ${data?.id}]`);
+    console.log(`✅ Meeting email sent via SMTP to ${to_email}`);
     return { success: true };
   } catch (err) {
     throw new Error(`send_email failed: ${err.message}`);

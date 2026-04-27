@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, verifySmtp } from './utils/mailer.js';
-import { check_calendar, create_meeting, send_email as gmailSend } from './scheduler.js';
+import { check_calendar, create_meeting, send_email as schedulerSendEmail } from './scheduler.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -199,7 +199,7 @@ app.post('/api/scheduler/send-email', async (req, res) => {
     if (!to_email || !subject || !body_html) {
       return res.status(400).json({ error: 'to_email, subject, and body_html are required.' });
     }
-    const result = await gmailSend(to_email, subject, body_html);
+    const result = await schedulerSendEmail(to_email, subject, body_html);
     return res.status(200).json(result);
   } catch (err) {
     console.error('POST /api/scheduler/send-email error:', err.message);
@@ -214,7 +214,6 @@ app.listen(PORT, async () => {
   const missing = [
     'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY',
     'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS',
-    'RESEND_API_KEY',
     'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI', 'GOOGLE_REFRESH_TOKEN',
   ].filter((v) => !process.env[v]);
 
