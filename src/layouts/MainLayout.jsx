@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
+import ChatWidget from '@/components/ChatWidget';
 
 const pageVariants = {
   initial: { opacity: 0, y: 20 },
@@ -11,6 +13,11 @@ const pageVariants = {
 
 export default function MainLayout() {
   const location = useLocation();
+
+  // Scroll to top on every route change
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-primary">
@@ -29,6 +36,7 @@ export default function MainLayout() {
         </AnimatePresence>
       </main>
       <Footer />
+      <ChatWidget />
     </div>
   );
 }

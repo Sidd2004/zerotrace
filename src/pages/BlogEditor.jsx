@@ -91,8 +91,8 @@ export default function BlogEditor() {
 
       for (const img of imgs) {
         const src = img.getAttribute('src') || '';
-        // Only process external URLs (not already on zerotrace.in)
-        if (/^https?:\/\//i.test(src) && !src.includes('zerotrace.in')) {
+        // Only process external URLs (not already on zerotrace.in or Cloudinary)
+        if (/^https?:\/\//i.test(src) && !src.includes('zerotrace.in') && !src.includes('res.cloudinary.com')) {
           try {
             const response = await fetch(src);
             if (!response.ok) continue;
@@ -106,7 +106,21 @@ export default function BlogEditor() {
 
             const formData = new FormData();
             formData.append('image', file);
-            const uploadRes = await fetch('/upload-image.php', { method: 'POST', body: formData });
+            
+            const { data: sessionData } = await supabase.auth.getSession();
+            const token = sessionData?.session?.access_token;
+
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+            const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+            
+            const uploadRes = await fetch(`${supabaseUrl}/functions/v1/upload-blog-image`, { 
+              method: 'POST', 
+              headers: { 
+                'apikey': anonKey,
+                ...(token ? { 'Authorization': `Bearer ${token}` } : { 'Authorization': `Bearer ${anonKey}` }) 
+              },
+              body: formData 
+            });
             if (uploadRes.ok) {
               const data = await uploadRes.json();
               if (data.url) {
@@ -193,12 +207,25 @@ export default function BlogEditor() {
 
     try {
       if (imageExtensions.includes(ext)) {
-        // Image file → upload via PHP endpoint as cover image
+        // Image file → upload via API as cover image
         toast.loading('Uploading cover image...', { id: 'smart-upload' });
         const formData = new FormData();
         formData.append('image', file);
 
-        const res = await fetch('/upload-image.php', { method: 'POST', body: formData });
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+        const res = await fetch(`${supabaseUrl}/functions/v1/upload-blog-image`, { 
+          method: 'POST', 
+          headers: { 
+            'apikey': anonKey,
+            ...(token ? { 'Authorization': `Bearer ${token}` } : { 'Authorization': `Bearer ${anonKey}` }) 
+          },
+          body: formData 
+        });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || `Upload failed (${res.status})`);
@@ -264,7 +291,7 @@ export default function BlogEditor() {
           }
         }
 
-        // Upload extracted images via PHP
+        // Upload extracted images via API
         const uploadedUrls = new Map();
         let uploaded = 0;
         for (const [name, blob] of imageBlobs) {
@@ -275,7 +302,20 @@ export default function BlogEditor() {
             const formData = new FormData();
             formData.append('image', imgFile);
 
-            const res = await fetch('/upload-image.php', { method: 'POST', body: formData });
+            const { data: sessionData } = await supabase.auth.getSession();
+            const token = sessionData?.session?.access_token;
+
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+            const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+            const res = await fetch(`${supabaseUrl}/functions/v1/upload-blog-image`, { 
+              method: 'POST', 
+              headers: { 
+                'apikey': anonKey,
+                ...(token ? { 'Authorization': `Bearer ${token}` } : { 'Authorization': `Bearer ${anonKey}` }) 
+              },
+              body: formData 
+            });
             if (res.ok) {
               const data = await res.json();
               if (data.url) {

@@ -1,0 +1,14 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://zerotrace.in/sitemap.xml
+
+# Disallow admin/auth pages
+Disallow: /dashboard
+Disallow: /write
+Disallow: /edit/
+Disallow: /login
+Disallow: /register
+Disallow: /reset-password

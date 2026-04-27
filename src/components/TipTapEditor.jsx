@@ -11,6 +11,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import JSZip from 'jszip';
 import toast from 'react-hot-toast';
+import { supabase } from '@/lib/supabase';
 import {
   HiCode,
   HiLink,
@@ -74,7 +75,20 @@ async function uploadImageBlob(blob, filename) {
   const formData = new FormData();
   formData.append('image', file);
 
-  const res = await fetch('/upload-image.php', { method: 'POST', body: formData });
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  
+  const res = await fetch(`${supabaseUrl}/functions/v1/upload-blog-image`, { 
+    method: 'POST', 
+    headers: {
+      'apikey': anonKey,
+      ...(token ? { 'Authorization': `Bearer ${token}` } : { 'Authorization': `Bearer ${anonKey}` })
+    },
+    body: formData 
+  });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `Upload failed (${res.status})`);
@@ -324,8 +338,23 @@ async function uploadImage(file, onProgress) {
     xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
     xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
 
-    xhr.open('POST', '/upload-image.php');
-    xhr.send(formData);
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+    xhr.open('POST', `${supabaseUrl}/functions/v1/upload-blog-image`);
+    xhr.setRequestHeader('apikey', anonKey);
+    
+    supabase.auth.getSession().then(({ data: sessionData }) => {
+      const token = sessionData?.session?.access_token;
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      } else {
+        xhr.setRequestHeader('Authorization', `Bearer ${anonKey}`);
+      }
+      xhr.send(formData);
+    }).catch(() => {
+      reject(new Error('Auth error'));
+    });
   });
 }
 

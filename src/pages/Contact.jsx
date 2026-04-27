@@ -17,13 +17,12 @@ import GlassCard from '@/components/GlassCard';
 import toast from 'react-hot-toast';
 
 const serviceOptions = [
-  'Penetration Testing',
-  'Web Application Security',
-  'Cloud Infrastructure Audit',
-  'Red Team Operations',
-  'Security Architecture Design',
-  'Incident Response',
-  'Other / General Inquiry',
+  'SOC Setup Inquiry',
+  'VAPT / Penetration Testing',
+  'Security Audit Request',
+  'AI Automation Consultation',
+  'Custom GPT Development',
+  'General Inquiry',
 ];
 
 export default function Contact() {

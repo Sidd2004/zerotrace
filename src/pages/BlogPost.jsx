@@ -16,6 +16,9 @@ import { formatDate, stripMarkdown, truncateText } from '@/utils/helpers';
 import LikeButton from '@/components/LikeButton';
 import Comments from '@/components/Comments';
 import GridBackground from '@/components/GridBackground';
+import ReadNextPost from '@/components/ReadNextPost';
+import RelatedPosts from '@/components/RelatedPosts';
+import useRelatedPosts from '@/hooks/useRelatedPosts';
 
 // ─── SEO helpers ─────────
 function setMeta(name, content) {
@@ -52,6 +55,7 @@ export default function BlogPost() {
   const { user } = useAuth();
   const [post, setPost] = useState(null);
   const [loading, setLoading] = useState(true);
+  const { readNext, relatedPosts } = useRelatedPosts(post);
 
   useEffect(() => {
     fetchPost();
@@ -390,12 +394,18 @@ export default function BlogPost() {
                 Did you find this helpful?
               </span>
             </div>
+
+            {/* Read Next */}
+            <ReadNextPost post={readNext} />
           </motion.article>
 
           {/* Comments */}
           <Comments postId={post.id} />
         </div>
       </section>
+
+      {/* Related Posts */}
+      <RelatedPosts posts={relatedPosts} />
     </>
   );
 }
