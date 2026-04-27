@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   HiMail,
@@ -25,6 +25,35 @@ const serviceOptions = [
   'General Inquiry',
 ];
 
+// ─── Calendly helpers ──────────────────────────────────────────────────────
+const CALENDLY_URL = 'https://calendly.com/zerotrace2004/30min';
+
+let calendlyLoaded = false;
+function ensureCalendlyScript() {
+  if (calendlyLoaded) return;
+  calendlyLoaded = true;
+  const link = document.createElement('link');
+  link.href = 'https://assets.calendly.com/assets/external/widget.css';
+  link.rel = 'stylesheet';
+  document.head.appendChild(link);
+  const script = document.createElement('script');
+  script.src = 'https://assets.calendly.com/assets/external/widget.js';
+  script.async = true;
+  document.head.appendChild(script);
+}
+
+function openCalendly() {
+  ensureCalendlyScript();
+  const tryOpen = () => {
+    if (window.Calendly) {
+      window.Calendly.initPopupWidget({ url: CALENDLY_URL });
+    } else {
+      setTimeout(tryOpen, 300);
+    }
+  };
+  tryOpen();
+}
+
 export default function Contact() {
   const [form, setForm] = useState({
     name: '',
@@ -35,6 +64,11 @@ export default function Contact() {
   });
 
   const [loading, setLoading] = useState(false);
+
+  // Preload Calendly script on mount
+  useEffect(() => {
+    ensureCalendlyScript();
+  }, []);
 
   const handleChange = (e) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -305,6 +339,45 @@ export default function Contact() {
                     {loading ? 'Sending...' : 'Send Message'}
                   </button>
                 </form>
+
+                {/* Calendly CTA */}
+                <div className="mt-6 pt-6" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+                    <span className="text-text-muted text-xs font-medium tracking-wide uppercase">Or</span>
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openCalendly}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold transition-all duration-200"
+                    style={{
+                      background: 'rgba(239, 47, 136, 0.08)',
+                      border: '1px solid rgba(239, 47, 136, 0.25)',
+                      color: '#ef2f88',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(239, 47, 136, 0.15)';
+                      e.currentTarget.style.borderColor = 'rgba(239, 47, 136, 0.4)';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(239, 47, 136, 0.08)';
+                      e.currentTarget.style.borderColor = 'rgba(239, 47, 136, 0.25)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                    id="contact-schedule-meeting"
+                    aria-label="Schedule a meeting directly"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                      <line x1="16" y1="2" x2="16" y2="6" />
+                      <line x1="8" y1="2" x2="8" y2="6" />
+                      <line x1="3" y1="10" x2="21" y2="10" />
+                    </svg>
+                    Set up a Meet Directly
+                  </button>
+                </div>
               </GlassCard>
             </motion.div>
           </div>

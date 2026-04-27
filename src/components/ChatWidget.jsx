@@ -17,6 +17,8 @@ const STORAGE_KEY = 'zerotrace_chat_history';
 const SUPABASE_FUNCTION_URL =
   'https://hklbzynfekyymrdqlhiv.supabase.co/functions/v1/chat-ai';
 
+const CALENDLY_URL = 'https://calendly.com/zerotrace2004/30min';
+
 const WELCOME_MESSAGE = {
   role: 'assistant',
   content:
@@ -24,10 +26,66 @@ const WELCOME_MESSAGE = {
   id: 'welcome',
 };
 
+// ─── Load Calendly widget script once ──────────────────────────────────────
+let calendlyLoaded = false;
+function ensureCalendlyScript() {
+  if (calendlyLoaded) return;
+  calendlyLoaded = true;
+
+  // CSS
+  const link = document.createElement('link');
+  link.href = 'https://assets.calendly.com/assets/external/widget.css';
+  link.rel = 'stylesheet';
+  document.head.appendChild(link);
+
+  // JS
+  const script = document.createElement('script');
+  script.src = 'https://assets.calendly.com/assets/external/widget.js';
+  script.async = true;
+  document.head.appendChild(script);
+}
+
+// ─── Open Calendly popup ────────────────────────────────────────────────────
+function openCalendly() {
+  ensureCalendlyScript();
+  // Wait briefly for script to load if first time
+  const tryOpen = () => {
+    if (window.Calendly) {
+      window.Calendly.initPopupWidget({ url: CALENDLY_URL });
+    } else {
+      setTimeout(tryOpen, 300);
+    }
+  };
+  tryOpen();
+}
+
+// ─── Calendly Schedule Button ───────────────────────────────────────────────
+function CalendlyButton() {
+  return (
+    <button
+      onClick={openCalendly}
+      className="zt-calendly-btn"
+      aria-label="Schedule a meeting with ZeroTrace"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+      Schedule a Meeting
+    </button>
+  );
+}
+
 // Simple markdown-ish renderer for bold/code/links in bot messages
 function BotMessageContent({ content }) {
+  // Check if the message contains the [CALENDLY] marker
+  const hasCalendly = content.includes('[CALENDLY]');
+  const cleanContent = content.replace('[CALENDLY]', '').trim();
+
   // Process **bold**, `code`, and line breaks
-  const lines = content.split('\n');
+  const lines = cleanContent.split('\n');
   return (
     <div className="zt-chat-message-text">
       {lines.map((line, li) => {
@@ -48,6 +106,11 @@ function BotMessageContent({ content }) {
           </span>
         );
       })}
+      {hasCalendly && (
+        <div style={{ marginTop: '10px' }}>
+          <CalendlyButton />
+        </div>
+      )}
     </div>
   );
 }
@@ -82,6 +145,11 @@ export default function ChatWidget() {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const panelRef = useRef(null);
+
+  // Preload Calendly script when widget opens
+  useEffect(() => {
+    if (isOpen) ensureCalendlyScript();
+  }, [isOpen]);
 
   // Persist messages to localStorage
   useEffect(() => {

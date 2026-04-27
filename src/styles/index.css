@@ -979,6 +979,36 @@ h1, h2, h3, h4, h5, h6 {
   text-decoration: underline;
 }
 
+/* Calendly schedule button inside chat */
+.zt-calendly-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #ef2f88, #8843f2);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 16px rgba(239, 47, 136, 0.3);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.zt-calendly-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(239, 47, 136, 0.45);
+  opacity: 0.95;
+}
+
+.zt-calendly-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(239, 47, 136, 0.25);
+}
+
 /* Mobile: full-width panel */
 @media (max-width: 480px) {
   .zt-chat-trigger-container {

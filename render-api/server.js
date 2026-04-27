@@ -6,7 +6,6 @@ import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, verifySmtp } from './utils/mailer.js';
-import { check_calendar, create_meeting, send_email as schedulerSendEmail } from './scheduler.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -148,64 +147,7 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
   }
 });
 
-// ─── Scheduler Routes ─────────────────────────────────────────────────────────
 
-/**
- * POST /api/scheduler/check-calendar
- * Body: { date, start_time, end_time, timezone? }
- * Returns: { available: true } | { available: false, next_free_slot: "YYYY-MM-DDTHH:MM" }
- */
-app.post('/api/scheduler/check-calendar', async (req, res) => {
-  try {
-    const { date, start_time, end_time, timezone } = req.body;
-    if (!date || !start_time || !end_time) {
-      return res.status(400).json({ error: 'date, start_time, and end_time are required.' });
-    }
-    const result = await check_calendar(date, start_time, end_time, timezone);
-    return res.status(200).json(result);
-  } catch (err) {
-    console.error('POST /api/scheduler/check-calendar error:', err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * POST /api/scheduler/create-meeting
- * Body: { title, date, start_time, end_time, attendee_email, timezone? }
- * Returns: { event_id, meet_link, calendar_link }
- */
-app.post('/api/scheduler/create-meeting', async (req, res) => {
-  try {
-    const { title, date, start_time, end_time, attendee_email, timezone } = req.body;
-    if (!title || !date || !start_time || !end_time || !attendee_email) {
-      return res.status(400).json({ error: 'title, date, start_time, end_time, and attendee_email are required.' });
-    }
-    const result = await create_meeting(title, date, start_time, end_time, attendee_email, timezone);
-    return res.status(200).json(result);
-  } catch (err) {
-    console.error('POST /api/scheduler/create-meeting error:', err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * POST /api/scheduler/send-email
- * Body: { to_email, subject, body_html }
- * Returns: { success: true }
- */
-app.post('/api/scheduler/send-email', async (req, res) => {
-  try {
-    const { to_email, subject, body_html } = req.body;
-    if (!to_email || !subject || !body_html) {
-      return res.status(400).json({ error: 'to_email, subject, and body_html are required.' });
-    }
-    const result = await schedulerSendEmail(to_email, subject, body_html);
-    return res.status(200).json(result);
-  } catch (err) {
-    console.error('POST /api/scheduler/send-email error:', err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
 
 // ─── Start Server (runtime only — never reached during build) ───
 app.listen(PORT, async () => {
@@ -214,7 +156,6 @@ app.listen(PORT, async () => {
   const missing = [
     'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY',
     'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS',
-    'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI', 'GOOGLE_REFRESH_TOKEN',
   ].filter((v) => !process.env[v]);
 
   if (missing.length > 0) {
