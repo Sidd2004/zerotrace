@@ -235,7 +235,7 @@ export default function Home() {
                 transition={{ duration: 0.6, delay: 0.1 }}
                 className="font-heading font-black text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-[1.1] mb-6"
               >
-                Build Smarter. Rank Higher.<br />
+                Build Smarter.<br /> Rank Higher.<br />
                 <span className="gradient-text">Stay Secure.</span>
               </motion.h1>
 
